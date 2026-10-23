@@ -26,6 +26,7 @@ import {
   type Rtcm3Frame,
 } from "./rtcm3";
 import type { CasRecord, NetRecord, SourcetableRecord, StrRecord } from "./sourcetable";
+import type { NtripServerMode } from "./ntrip-revisions";
 
 export interface ReferenceStation {
   readonly mountpoint: string;
@@ -39,6 +40,7 @@ export interface ReferenceStation {
   readonly isVrs: boolean;
   readonly formatDetails: string;
   readonly bitrate: number;
+  readonly ntripRevision?: NtripServerMode;
 }
 
 export const REFERENCE_STATIONS: readonly ReferenceStation[] = [

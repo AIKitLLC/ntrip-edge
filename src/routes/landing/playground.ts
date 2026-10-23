@@ -4,6 +4,7 @@
  */
 
 import {
+  buildNtripWireTranscript,
   getAllStations,
   getDefaultSourcetableRecords,
   serializeSourcetable,
@@ -54,6 +55,8 @@ const PLAYGROUND_SCRIPT = `
   var cfgReceiver = document.getElementById("cfg-receiver");
   var cfgBitrate = document.getElementById("cfg-bitrate");
   var cfgVrs = document.getElementById("cfg-vrs");
+  var cfgRevision = document.getElementById("cfg-revision");
+  var cfgSourcePwd = document.getElementById("cfg-source-pwd");
   var cfgUpstream = document.getElementById("cfg-upstream");
 
   var btnValidateCfg = document.getElementById("btn-validate-cfg");
@@ -296,7 +299,9 @@ const PLAYGROUND_SCRIPT = `
       antennaDescriptor: (cfgAntenna.value || "").trim(),
       receiverDescriptor: (cfgReceiver.value || "").trim(),
       bitrate: Number(cfgBitrate.value) || 11200,
-      isVrs: cfgVrs.value === "true"
+      isVrs: cfgVrs.value === "true",
+      ntripRevision: cfgRevision ? cfgRevision.value : "dual",
+      sourcePassword: cfgSourcePwd ? (cfgSourcePwd.value || "").trim() : "ntrip123"
     };
     var up = (cfgUpstream.value || "").trim();
     if (up) payload.upstreamUrl = up;
@@ -460,6 +465,8 @@ export function renderPlaygroundPage(info: PageInfo): string {
   });
   const initialFrame1005 = initialEpoch.frames[0];
   const initialSourcetable = serializeSourcetable(getDefaultSourcetableRecords());
+  const rev1Sample = buildNtripWireTranscript("rev1", { mountpoint: "HAN0-VN" });
+  const rev2Sample = buildNtripWireTranscript("rev2", { mountpoint: "HAN0-VN" });
   const allStations = getAllStations();
 
   const mountChipsHtml = allStations
@@ -661,6 +668,21 @@ export function renderPlaygroundPage(info: PageInfo): string {
         </div>
 
         <div class="row" style="margin-bottom:10px">
+          <div style="flex:1 1 160px">
+            <label for="cfg-revision" style="font-size:0.78rem;font-weight:700;color:var(--muted);display:block">NTRIP SERVER REVISION</label>
+            <select id="cfg-revision" class="select" style="width:100%">
+              <option value="dual">Dual-Stack (Rev 1 v1.0 + Rev 2 v2.0)</option>
+              <option value="rev1">NTRIP Rev 1 Only (v1.0 — ICY 200 OK / SOURCE)</option>
+              <option value="rev2">NTRIP Rev 2 Only (v2.0 — HTTP/1.1 gnss/data)</option>
+            </select>
+          </div>
+          <div style="flex:1 1 120px">
+            <label for="cfg-source-pwd" style="font-size:0.78rem;font-weight:700;color:var(--muted);display:block">REV 1 SOURCE / AUTH PWD</label>
+            <input id="cfg-source-pwd" class="input" style="width:100%" value="ntrip123">
+          </div>
+        </div>
+
+        <div class="row" style="margin-bottom:10px">
           <div style="flex:1 1 110px">
             <label for="cfg-bitrate" style="font-size:0.78rem;font-weight:700;color:var(--muted);display:block">BITRATE (bps)</label>
             <input id="cfg-bitrate" class="input" type="number" style="width:100%" value="11200">
@@ -675,8 +697,8 @@ export function renderPlaygroundPage(info: PageInfo): string {
         </div>
 
         <div style="margin-bottom:12px">
-          <label for="cfg-upstream" style="font-size:0.78rem;font-weight:700;color:var(--muted);display:block">OPTIONAL LIVE UPSTREAM NTRIP v2.0 URL TO PROBE</label>
-          <input id="cfg-upstream" class="input" style="width:100%" placeholder="https://ntrip.ai-kit.net/sourcetable">
+          <label for="cfg-upstream" style="font-size:0.78rem;font-weight:700;color:var(--muted);display:block">OPTIONAL LIVE UPSTREAM NTRIP (REV 1 OR REV 2) URL TO PROBE</label>
+          <input id="cfg-upstream" class="input" style="width:100%" placeholder="https://ntrip.ai-kit.net/rev1/sourcetable or /rev2/sourcetable">
         </div>
 
         <div class="row">
@@ -686,7 +708,7 @@ export function renderPlaygroundPage(info: PageInfo): string {
       </div>
 
       <div>
-        <strong style="font-size:0.86rem;display:block;margin-bottom:6px">RTCM 10410.1 &amp; 10403.3 Specification Compliance Gates:</strong>
+        <strong style="font-size:0.86rem;display:block;margin-bottom:6px">RTCM 10410.0 (Rev 1) / 10410.1 (Rev 2) &amp; 10403.3 Compliance Gates:</strong>
         <div class="scroll" style="max-height:210px;margin-top:0;margin-bottom:10px">
           <table class="attrs">
             <thead>
@@ -698,13 +720,38 @@ export function renderPlaygroundPage(info: PageInfo): string {
               </tr>
             </thead>
             <tbody id="spec-checks-tbody">
-              <tr><td colspan="4" style="color:var(--muted)">Click "1. Validate Server &amp; Specs" or "2. Create Config" to run all 9 specification compliance gates.</td></tr>
+              <tr><td colspan="4" style="color:var(--muted)">Click "1. Validate Server &amp; Specs" or "2. Create Config" to run all 10 specification compliance gates (including Rev 1 vs Rev 2 wire framing).</td></tr>
             </tbody>
           </table>
         </div>
 
-        <strong style="font-size:0.86rem;display:block;margin-bottom:6px">Validated NTRIP Config / STR Record &amp; RTCM 3.x Output:</strong>
-        <pre class="code" style="max-height:200px;margin:0"><code id="cfg-result-out">Ready. Authenticate with ICP II above, customize any station parameters on the left, and click "Create Config".</code></pre>
+        <strong style="font-size:0.86rem;display:block;margin-bottom:6px">Validated NTRIP Config / STR Record &amp; Wire Handshakes Output:</strong>
+        <pre class="code" style="max-height:200px;margin:0"><code id="cfg-result-out">Ready. Authenticate with ICP II above, choose Rev 1 / Rev 2 / Dual-Stack on the left, and click "Create Config".</code></pre>
+      </div>
+    </div>
+
+    <hr style="border:0;border-top:1px solid var(--border);margin:20px 0 16px">
+
+    <div class="panel-head" style="margin-bottom:8px">
+      <strong style="font-size:0.95rem">Side-by-Side Protocol Wire Comparison: NTRIP Rev 1 (v1.0 — RTCM 10410.0) vs NTRIP Rev 2 (v2.0 — RTCM 10410.1)</strong>
+      <div class="row">
+        <a class="chip" href="/rev1/sourcetable?wire=true">/rev1/sourcetable</a>
+        <a class="chip" href="/rev2/sourcetable">/rev2/sourcetable</a>
+        <a class="chip" href="/api/v1/ntrip/revisions?mountpoint=HAN0-VN">/api/v1/ntrip/revisions</a>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div>
+        <span class="badge warn" style="margin-bottom:6px;display:inline-block">NTRIP Rev 1 (v1.0) &middot; ICY 200 OK &amp; SOURCE /mountpoint</span>
+        <pre class="code" style="max-height:220px;margin:0"><code>${escapeHtml(
+          `--- Client Stream Request (Rev 1) ---\n${rev1Sample.clientStreamRequest}\n\n--- Caster Stream Response (Rev 1) ---\n${rev1Sample.casterStreamResponseHeaders}\n\n--- Base Server Ingest (Rev 1) ---\n${rev1Sample.serverIngestRequestHeaders}`
+        )}</code></pre>
+      </div>
+      <div>
+        <span class="badge ok" style="margin-bottom:6px;display:inline-block">NTRIP Rev 2 (v2.0) &middot; HTTP/1.1 gnss/data &amp; Chunked</span>
+        <pre class="code" style="max-height:220px;margin:0"><code>${escapeHtml(
+          `--- Client Stream Request (Rev 2) ---\n${rev2Sample.clientStreamRequest}\n--- Caster Stream Response (Rev 2) ---\n${rev2Sample.casterStreamResponseHeaders}\n\n--- Base Server Ingest (Rev 2) ---\n${rev2Sample.serverIngestRequestHeaders}`
+        )}</code></pre>
       </div>
     </div>
   </section>

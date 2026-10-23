@@ -3,6 +3,7 @@ export * from "./coordinates";
 export * from "./rtcm3";
 export * from "./nmea";
 export * from "./sourcetable";
+export * from "./ntrip-revisions";
 export * from "./simulator";
 export * from "./icp-ii";
 export * from "./validator";

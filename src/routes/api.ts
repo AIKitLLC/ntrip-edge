@@ -4,6 +4,7 @@ import type { Env } from "../types/env";
 import {
   base64ToBytes,
   buildNmeaGga,
+  buildNtripWireTranscript,
   bytesToBase64,
   bytesToHex,
   computeBaselineEnu,
@@ -439,6 +440,8 @@ const CustomConfigBodySchema = z.object({
   latDeg: z.number(),
   lonDeg: z.number(),
   heightM: z.number(),
+  ntripRevision: z.enum(["rev1", "rev2", "dual"]).optional(),
+  sourcePassword: z.string().optional(),
   format: z.string().optional(),
   formatDetails: z.string().optional(),
   carrier: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
@@ -450,6 +453,28 @@ const CustomConfigBodySchema = z.object({
   bitrate: z.number().optional(),
   upstreamUrl: z.string().optional(),
   sampleRtcmHex: z.string().optional(),
+});
+
+// 7b. GET /api/v1/ntrip/revisions — Compare NTRIP Rev 1 (v1.0) vs Rev 2 (v2.0) wire handshakes
+apiRouter.get("/ntrip/revisions", (c) => {
+  const mountpoint = (c.req.query("mountpoint") ?? "HAN0-VN").trim().toUpperCase();
+  const sourcePassword = c.req.query("sourcePassword") ?? "ntrip123";
+  return c.json({
+    success: true,
+    mountpoint,
+    rev1Endpoints: {
+      sourcetable: "https://ntrip.ai-kit.net/rev1/sourcetable",
+      stream: `https://ntrip.ai-kit.net/rev1/${mountpoint}`,
+      sourceIngest: `POST https://ntrip.ai-kit.net/rev1/${mountpoint} (with 'SOURCE ${sourcePassword} /${mountpoint}' preamble)`,
+    },
+    rev2Endpoints: {
+      sourcetable: "https://ntrip.ai-kit.net/rev2/sourcetable",
+      stream: `https://ntrip.ai-kit.net/rev2/${mountpoint}`,
+      httpIngest: `POST https://ntrip.ai-kit.net/rev2/${mountpoint} (with 'Ntrip-Version: Ntrip/2.0')`,
+    },
+    rev1: buildNtripWireTranscript("rev1", { mountpoint, sourcePassword }),
+    rev2: buildNtripWireTranscript("rev2", { mountpoint, sourcePassword }),
+  });
 });
 
 // 8. GET & POST /api/v1/auth/icp-ii/challenge — Issue ICP Internet Identity (II) auth challenge
@@ -543,6 +568,8 @@ apiRouter.post("/ntrip/validate", async (c) => {
     latDeg: d.latDeg,
     lonDeg: d.lonDeg,
     heightM: d.heightM,
+    ...(d.ntripRevision !== undefined ? { ntripRevision: d.ntripRevision } : {}),
+    ...(d.sourcePassword !== undefined ? { sourcePassword: d.sourcePassword } : {}),
     ...(d.format !== undefined ? { format: d.format } : {}),
     ...(d.formatDetails !== undefined ? { formatDetails: d.formatDetails } : {}),
     ...(d.carrier !== undefined ? { carrier: d.carrier } : {}),
@@ -616,6 +643,8 @@ apiRouter.post("/configs", async (c) => {
     latDeg: d.latDeg,
     lonDeg: d.lonDeg,
     heightM: d.heightM,
+    ...(d.ntripRevision !== undefined ? { ntripRevision: d.ntripRevision } : {}),
+    ...(d.sourcePassword !== undefined ? { sourcePassword: d.sourcePassword } : {}),
     ...(d.format !== undefined ? { format: d.format } : {}),
     ...(d.formatDetails !== undefined ? { formatDetails: d.formatDetails } : {}),
     ...(d.carrier !== undefined ? { carrier: d.carrier } : {}),
@@ -636,7 +665,7 @@ apiRouter.post("/configs", async (c) => {
         error: {
           code: "NTRIP_SPEC_VALIDATION_FAILED",
           message:
-            "Configuration failed RTCM 10410.1 (NTRIP v2.0) / RTCM 10403.3 (RTCM 3.x) specification validation.",
+            "Configuration failed RTCM 10410.0 (Rev 1) / RTCM 10410.1 (Rev 2) / RTCM 10403.3 (RTCM 3.x) specification validation.",
         },
         validationReport: report,
       },
@@ -645,19 +674,29 @@ apiRouter.post("/configs", async (c) => {
   }
 
   const registered = registerValidatedConfig(authCheck.claims.principal, report);
+  const mp = registered.station.mountpoint;
   return c.json(
     {
       success: true,
       configId: registered.configId,
       ownerPrincipal: registered.ownerPrincipal,
       createdAtIso: registered.createdAtIso,
+      ntripRevision: registered.ntripRevision,
       station: registered.station,
       strRecord: registered.strRecord,
       strRecordLine: registered.strRecordLine,
       endpoints: {
-        ntripStreamUrl: `https://ntrip.ai-kit.net/${registered.station.mountpoint}`,
-        simulateEpochUrl: `https://ntrip.ai-kit.net/api/v1/simulate/epoch?mountpoint=${registered.station.mountpoint}`,
-        sseStreamUrl: `https://ntrip.ai-kit.net/api/v1/stream/${registered.station.mountpoint}`,
+        ntripAutoStreamUrl: `https://ntrip.ai-kit.net/${mp}`,
+        rev1StreamUrl:
+          registered.ntripRevision === "rev1" || registered.ntripRevision === "dual"
+            ? `https://ntrip.ai-kit.net/rev1/${mp}`
+            : null,
+        rev2StreamUrl:
+          registered.ntripRevision === "rev2" || registered.ntripRevision === "dual"
+            ? `https://ntrip.ai-kit.net/rev2/${mp}`
+            : null,
+        simulateEpochUrl: `https://ntrip.ai-kit.net/api/v1/simulate/epoch?mountpoint=${mp}`,
+        sseStreamUrl: `https://ntrip.ai-kit.net/api/v1/stream/${mp}`,
       },
       validationReport: registered.validationReport,
     },

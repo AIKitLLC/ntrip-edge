@@ -72,7 +72,12 @@ function healthJson(c: AppContext): Response {
         format: "RTCM 3.3",
       })),
       endpoints: {
-        sourcetable: "GET /sourcetable (or GET / with Ntrip-Version: Ntrip/2.0)",
+        sourcetable: "GET /sourcetable (auto-negotiates Rev 1 or Rev 2)",
+        rev1Sourcetable: "GET /rev1/sourcetable[?wire=true] (NTRIP Rev 1 / v1.0 SOURCETABLE 200 OK)",
+        rev1Stream: "GET /rev1/:mountpoint[?wire=true] | POST /rev1/:mountpoint (SOURCE <pwd> /<mountpoint>)",
+        rev2Sourcetable: "GET /rev2/sourcetable (NTRIP Rev 2 / v2.0 gnss/sourcetable)",
+        rev2Stream: "GET /rev2/:mountpoint | POST /rev2/:mountpoint (HTTP/1.1 gnss/data)",
+        revisionsCompare: "GET /api/v1/ntrip/revisions[?mountpoint=HAN0-VN]",
         mountpointStream: "GET /:mountpoint (HAN0-VN, SGN0-VN, SFO0-US, FFMJ-DE, TYO0-JP, VRS-AUTO, or custom)",
         mcpServer: "POST /mcp (Model Context Protocol JSON-RPC 2.0 Streamable HTTP)",
         llmTxt: "GET /llm.txt (also GET /llms.txt)",

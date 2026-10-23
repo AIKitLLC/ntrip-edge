@@ -246,5 +246,75 @@ describe("NTRIP Edge Worker HTTP & Caster endpoints", () => {
 
     const stRes = await app.request("/sourcetable");
     expect(await stRes.text()).toContain("STR;DANANG-VN;");
+
+    // 7. Distinct NTRIP Rev 1 (v1.0) vs Rev 2 (v2.0) server behavior & strict revision enforcement
+    const rev1StRes = await app.request("/rev1/sourcetable?wire=true");
+    expect(rev1StRes.status).toBe(200);
+    expect(rev1StRes.headers.get("X-Ntrip-Revision")).toBe("rev1");
+    expect(rev1StRes.headers.get("X-Ntrip-Status-Line")).toBe("SOURCETABLE 200 OK");
+    expect(rev1StRes.headers.get("Ntrip-Version")).toBeNull();
+    expect(await rev1StRes.text()).toContain("SOURCETABLE 200 OK\r\n");
+
+    const rev2StRes = await app.request("/rev2/sourcetable");
+    expect(rev2StRes.status).toBe(200);
+    expect(rev2StRes.headers.get("X-Ntrip-Revision")).toBe("rev2");
+    expect(rev2StRes.headers.get("Ntrip-Version")).toBe("Ntrip/2.0");
+    expect(rev2StRes.headers.get("Content-Type")).toContain("gnss/sourcetable");
+
+    // Create a strict Rev 1-only station (HUE-REV1) and a strict Rev 2-only station (HUE-REV2)
+    const createRev1Res = await app.request("/api/v1/configs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${verData.sessionToken}`,
+      },
+      body: JSON.stringify({
+        mountpoint: "HUE-REV1",
+        stationId: 1009,
+        identifier: "Hue Legacy Rev1 Base",
+        city: "Hue",
+        country: "VNM",
+        latDeg: 16.463713,
+        lonDeg: 107.590866,
+        heightM: 12.4,
+        ntripRevision: "rev1",
+        sourcePassword: "huePassword1",
+      }),
+    });
+    expect(createRev1Res.status).toBe(201);
+
+    // HUE-REV1 succeeds on /rev1/HUE-REV1 and rejects /rev2/HUE-REV1 with 400 NTRIP_REVISION_MISMATCH
+    const hueRev1Ok = await app.request("/rev1/HUE-REV1?epochs=1");
+    expect(hueRev1Ok.status).toBe(200);
+    expect(hueRev1Ok.headers.get("X-Ntrip-Revision")).toBe("rev1");
+    expect(hueRev1Ok.headers.get("X-Ntrip-Status-Line")).toBe("ICY 200 OK");
+
+    const hueRev1RejectedOnRev2 = await app.request("/rev2/HUE-REV1?epochs=1");
+    expect(hueRev1RejectedOnRev2.status).toBe(400);
+
+    // Test Rev 1 SOURCE <password> /<mountpoint> Server Ingest
+    const sampleRtcmBytes = new Uint8Array(await hueRev1Ok.arrayBuffer());
+    const sourceHeaderBytes = new TextEncoder().encode(
+      "SOURCE huePassword1 /HUE-REV1\r\nSource-Agent: NTRIP LegacyBase/1.0\r\n\r\n"
+    );
+    const rev1IngestBuf = new Uint8Array(sourceHeaderBytes.length + sampleRtcmBytes.length);
+    rev1IngestBuf.set(sourceHeaderBytes, 0);
+    rev1IngestBuf.set(sampleRtcmBytes, sourceHeaderBytes.length);
+
+    const rev1IngestRes = await app.request("/rev1/HUE-REV1", {
+      method: "POST",
+      body: rev1IngestBuf,
+    });
+    expect(rev1IngestRes.status).toBe(200);
+    const rev1IngestJson = (await rev1IngestRes.json()) as {
+      revision: string;
+      casterResponseStatusLine: string;
+      allCrcValid: boolean;
+      rev1SourceHeader: { password?: string; mountpoint?: string };
+    };
+    expect(rev1IngestJson.revision).toBe("rev1");
+    expect(rev1IngestJson.casterResponseStatusLine).toBe("ICY 200 OK");
+    expect(rev1IngestJson.allCrcValid).toBe(true);
+    expect(rev1IngestJson.rev1SourceHeader.mountpoint).toBe("HUE-REV1");
   });
 });
