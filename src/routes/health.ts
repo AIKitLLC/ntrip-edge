@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env } from "../types/env";
-import { REFERENCE_STATIONS } from "../protocol";
+import { getAllStations } from "../protocol";
 import { buildSourcetableResponse } from "./caster";
 import { renderDocsPage, renderPlaygroundPage, type PageInfo } from "./landing";
 
@@ -15,7 +15,7 @@ function pageSecurityHeaders(nonce: string): Record<string, string> {
       "default-src 'none'",
       `style-src 'nonce-${nonce}' 'unsafe-inline'`,
       `script-src 'nonce-${nonce}'`,
-      "connect-src 'self'",
+      "connect-src 'self' https://identity.ic0.app",
       "img-src data:",
       "base-uri 'none'",
       "form-action 'none'",
@@ -40,7 +40,7 @@ function htmlPage(c: AppContext, render: (info: PageInfo) => string): Response {
   for (const [name, value] of Object.entries(pageSecurityHeaders(nonce))) {
     c.header(name, value);
   }
-  c.header("Cache-Control", "public, max-age=60");
+  c.header("Cache-Control", "no-store");
   return c.html(render({ colo: snap.colo, country: snap.country, nonce }), 200);
 }
 
@@ -50,19 +50,21 @@ function healthJson(c: AppContext): Response {
     {
       name: "AI Kit NTRIP Edge",
       status: "healthy",
-      protocol: "NTRIP/2.0 (RTCM 3.3 + NMEA-0183 GGA)",
+      protocol: "NTRIP/2.0 (RTCM 3.3 + NMEA-0183 GGA + MCP + ICP II)",
       environment: c.env?.ENVIRONMENT ?? "production",
       project: {
         organization: "AI Kit LLC",
         repository: "https://github.com/AIKitLLC/ntrip-edge",
         docs: "https://github.com/AIKitLLC/ntrip-edge#readme",
+        llmGuide: "https://ntrip.ai-kit.net/llm.txt",
+        mcpEndpoint: "https://ntrip.ai-kit.net/mcp",
         license: "MIT",
       },
       edge: {
         location: snap.colo,
         country: snap.country,
       },
-      mountpoints: REFERENCE_STATIONS.map((s) => ({
+      mountpoints: getAllStations().map((s) => ({
         mountpoint: s.mountpoint,
         city: s.city,
         country: s.country,
@@ -71,7 +73,13 @@ function healthJson(c: AppContext): Response {
       })),
       endpoints: {
         sourcetable: "GET /sourcetable (or GET / with Ntrip-Version: Ntrip/2.0)",
-        mountpointStream: "GET /:mountpoint (HAN0-VN, SGN0-VN, SFO0-US, FFMJ-DE, TYO0-JP, VRS-AUTO)",
+        mountpointStream: "GET /:mountpoint (HAN0-VN, SGN0-VN, SFO0-US, FFMJ-DE, TYO0-JP, VRS-AUTO, or custom)",
+        mcpServer: "POST /mcp (Model Context Protocol JSON-RPC 2.0 Streamable HTTP)",
+        llmTxt: "GET /llm.txt (also GET /llms.txt)",
+        icpIiChallenge: "GET /api/v1/auth/icp-ii/challenge",
+        icpIiVerify: "POST /api/v1/auth/icp-ii/verify",
+        ntripValidate: "POST /api/v1/ntrip/validate",
+        ntripConfigs: "GET /api/v1/configs | POST /api/v1/configs (Requires ICP II session token + Spec Validation)",
         sourcetableJson: "GET /api/v1/sourcetable[?lat=&lon=]",
         sourcetableParse: "POST /api/v1/sourcetable/parse",
         rtcmDecode: "POST /api/v1/rtcm/decode",
@@ -91,7 +99,6 @@ healthRouter.get("/", (c) => {
   const ntripVer = c.req.header("Ntrip-Version") ?? "";
   const userAgent = (c.req.header("User-Agent") ?? "").toUpperCase();
 
-  // Standard NTRIP v1.0 / v2.0 clients requesting GET / receive the Sourcetable directly
   if (format === "sourcetable" || ntripVer.length > 0 || userAgent.includes("NTRIP")) {
     return buildSourcetableResponse(c);
   }

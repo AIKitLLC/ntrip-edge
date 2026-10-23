@@ -14,14 +14,20 @@ import {
   encodeRtcm1230,
   encodeRtcm4072Extension,
   findNearestStation,
+  getAllStations,
   getDefaultSourcetableRecords,
   hexToBytes,
   haversineDistanceKm,
+  listCustomConfigs,
   parseNmeaGga,
   parseSourcetable,
-  REFERENCE_STATIONS,
+  registerValidatedConfig,
   serializeSourcetable,
   simulateGnssEpoch,
+  createIcpIiChallenge,
+  validateNtripConfigAgainstSpecs,
+  verifyIcpIiChallenge,
+  verifyIcpSessionToken,
   type GeodeticCoord,
   type NmeaFixQuality,
 } from "../protocol";
@@ -410,9 +416,253 @@ apiRouter.get("/simulate/epoch", (c) => {
   const epochResult = simulateGnssEpoch(simOptions);
   return c.json({
     success: true,
-    stationsAvailable: REFERENCE_STATIONS.map((s) => s.mountpoint),
+    stationsAvailable: getAllStations().map((s) => s.mountpoint),
     epoch: epochResult,
   });
+});
+
+const IcpVerifyBodySchema = z.object({
+  challengeToken: z.string().min(10),
+  publicKeyHex: z.string().min(32),
+  signatureHex: z.string().optional(),
+  principal: z.string().optional(),
+  algorithm: z.enum(["ECDSA_P256", "ED25519", "ICP_DELEGATION"]).optional(),
+});
+
+const CustomConfigBodySchema = z.object({
+  icpSessionToken: z.string().optional(),
+  mountpoint: z.string().min(1).max(32),
+  stationId: z.number().int(),
+  identifier: z.string().min(1).max(64),
+  city: z.string().min(1).max(48),
+  country: z.string().min(1).max(8),
+  latDeg: z.number(),
+  lonDeg: z.number(),
+  heightM: z.number(),
+  format: z.string().optional(),
+  formatDetails: z.string().optional(),
+  carrier: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
+  navSystem: z.string().optional(),
+  network: z.string().optional(),
+  antennaDescriptor: z.string().optional(),
+  receiverDescriptor: z.string().optional(),
+  isVrs: z.boolean().optional(),
+  bitrate: z.number().optional(),
+  upstreamUrl: z.string().optional(),
+  sampleRtcmHex: z.string().optional(),
+});
+
+// 8. GET & POST /api/v1/auth/icp-ii/challenge — Issue ICP Internet Identity (II) auth challenge
+apiRouter.get("/auth/icp-ii/challenge", async (c) => {
+  const url = new URL(c.req.url);
+  const challenge = await createIcpIiChallenge(url.hostname || "ntrip.ai-kit.net");
+  return c.json({
+    success: true,
+    challenge,
+  });
+});
+
+apiRouter.post("/auth/icp-ii/challenge", async (c) => {
+  const url = new URL(c.req.url);
+  const challenge = await createIcpIiChallenge(url.hostname || "ntrip.ai-kit.net");
+  return c.json({
+    success: true,
+    challenge,
+  });
+});
+
+// 9. POST /api/v1/auth/icp-ii/verify — Verify ICP II signature/delegation and issue icp_ii_... session token
+apiRouter.post("/auth/icp-ii/verify", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = IcpVerifyBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "INVALID_ICP_II_VERIFY_INPUT",
+          message: parsed.error.issues.map((i) => i.message).join("; "),
+        },
+      },
+      400
+    );
+  }
+
+  const res = await verifyIcpIiChallenge({
+    challengeToken: parsed.data.challengeToken,
+    publicKeyHex: parsed.data.publicKeyHex,
+    ...(parsed.data.signatureHex !== undefined ? { signatureHex: parsed.data.signatureHex } : {}),
+    ...(parsed.data.principal !== undefined ? { principal: parsed.data.principal } : {}),
+    ...(parsed.data.algorithm !== undefined ? { algorithm: parsed.data.algorithm } : {}),
+  });
+
+  if (!res.ok) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: res.code,
+          message: res.error,
+        },
+      },
+      401
+    );
+  }
+
+  return c.json({
+    success: true,
+    sessionToken: res.sessionToken,
+    claims: res.claims,
+  });
+});
+
+// 10. POST /api/v1/ntrip/validate — Validate candidate NTRIP server / mountpoint config against specs
+apiRouter.post("/ntrip/validate", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = CustomConfigBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "INVALID_NTRIP_VALIDATE_INPUT",
+          message: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        },
+      },
+      400
+    );
+  }
+
+  const d = parsed.data;
+  const report = await validateNtripConfigAgainstSpecs({
+    mountpoint: d.mountpoint,
+    stationId: d.stationId,
+    identifier: d.identifier,
+    city: d.city,
+    country: d.country,
+    latDeg: d.latDeg,
+    lonDeg: d.lonDeg,
+    heightM: d.heightM,
+    ...(d.format !== undefined ? { format: d.format } : {}),
+    ...(d.formatDetails !== undefined ? { formatDetails: d.formatDetails } : {}),
+    ...(d.carrier !== undefined ? { carrier: d.carrier } : {}),
+    ...(d.navSystem !== undefined ? { navSystem: d.navSystem } : {}),
+    ...(d.network !== undefined ? { network: d.network } : {}),
+    ...(d.antennaDescriptor !== undefined ? { antennaDescriptor: d.antennaDescriptor } : {}),
+    ...(d.receiverDescriptor !== undefined ? { receiverDescriptor: d.receiverDescriptor } : {}),
+    ...(d.isVrs !== undefined ? { isVrs: d.isVrs } : {}),
+    ...(d.bitrate !== undefined ? { bitrate: d.bitrate } : {}),
+    ...(d.upstreamUrl !== undefined ? { upstreamUrl: d.upstreamUrl } : {}),
+    ...(d.sampleRtcmHex !== undefined ? { sampleRtcmHex: d.sampleRtcmHex } : {}),
+  });
+
+  return c.json(
+    {
+      success: report.compliant,
+      validationReport: report,
+    },
+    report.compliant ? 200 : 422
+  );
+});
+
+// 11. GET /api/v1/configs — List all active & custom registered NTRIP configurations
+apiRouter.get("/configs", (c) => {
+  return c.json({
+    success: true,
+    customConfigs: listCustomConfigs(),
+    allStations: getAllStations(),
+  });
+});
+
+// 12. POST /api/v1/configs — Create new NTRIP configuration (Requires ICP II login + full Spec Compliance)
+apiRouter.post("/configs", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = CustomConfigBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "INVALID_NTRIP_CONFIG_INPUT",
+          message: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        },
+      },
+      400
+    );
+  }
+
+  const d = parsed.data;
+  const tokenInput = d.icpSessionToken ?? c.req.header("Authorization");
+  const authCheck = await verifyIcpSessionToken(tokenInput);
+  if (!authCheck.ok) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "ICP_II_AUTH_REQUIRED",
+          message: authCheck.error,
+        },
+      },
+      401
+    );
+  }
+
+  const report = await validateNtripConfigAgainstSpecs({
+    mountpoint: d.mountpoint,
+    stationId: d.stationId,
+    identifier: d.identifier,
+    city: d.city,
+    country: d.country,
+    latDeg: d.latDeg,
+    lonDeg: d.lonDeg,
+    heightM: d.heightM,
+    ...(d.format !== undefined ? { format: d.format } : {}),
+    ...(d.formatDetails !== undefined ? { formatDetails: d.formatDetails } : {}),
+    ...(d.carrier !== undefined ? { carrier: d.carrier } : {}),
+    ...(d.navSystem !== undefined ? { navSystem: d.navSystem } : {}),
+    ...(d.network !== undefined ? { network: d.network } : {}),
+    ...(d.antennaDescriptor !== undefined ? { antennaDescriptor: d.antennaDescriptor } : {}),
+    ...(d.receiverDescriptor !== undefined ? { receiverDescriptor: d.receiverDescriptor } : {}),
+    ...(d.isVrs !== undefined ? { isVrs: d.isVrs } : {}),
+    ...(d.bitrate !== undefined ? { bitrate: d.bitrate } : {}),
+    ...(d.upstreamUrl !== undefined ? { upstreamUrl: d.upstreamUrl } : {}),
+    ...(d.sampleRtcmHex !== undefined ? { sampleRtcmHex: d.sampleRtcmHex } : {}),
+  });
+
+  if (!report.compliant) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "NTRIP_SPEC_VALIDATION_FAILED",
+          message:
+            "Configuration failed RTCM 10410.1 (NTRIP v2.0) / RTCM 10403.3 (RTCM 3.x) specification validation.",
+        },
+        validationReport: report,
+      },
+      422
+    );
+  }
+
+  const registered = registerValidatedConfig(authCheck.claims.principal, report);
+  return c.json(
+    {
+      success: true,
+      configId: registered.configId,
+      ownerPrincipal: registered.ownerPrincipal,
+      createdAtIso: registered.createdAtIso,
+      station: registered.station,
+      strRecord: registered.strRecord,
+      strRecordLine: registered.strRecordLine,
+      endpoints: {
+        ntripStreamUrl: `https://ntrip.ai-kit.net/${registered.station.mountpoint}`,
+        simulateEpochUrl: `https://ntrip.ai-kit.net/api/v1/simulate/epoch?mountpoint=${registered.station.mountpoint}`,
+        sseStreamUrl: `https://ntrip.ai-kit.net/api/v1/stream/${registered.station.mountpoint}`,
+      },
+      validationReport: registered.validationReport,
+    },
+    201
+  );
 });
 
 // 7. GET /api/v1/stream/:mountpoint — Bounded Server-Sent Events (SSE) real-time 1 Hz RTCM3 stream

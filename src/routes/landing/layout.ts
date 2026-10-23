@@ -61,10 +61,13 @@ export function renderPage(info: PageInfo, page: PageOptions): string {
     <a class="brand" href="/">${LOGO}<span>AI Kit NTRIP Edge</span></a>
     <nav class="nav" aria-label="Main">
       <a class="link" href="/#simulator">RTK Simulator</a>
+      <a class="link" href="/#builder">Create Config (ICP II)</a>
       <a class="link" href="/#inspector">RTCM3 Codec</a>
-      <a class="link" href="/#sourcetable">Sourcetable &amp; VRS</a>
-      <a class="link" href="/docs">Protocol &amp; API Docs</a>
-      <span class="pill"><i></i>NTRIP v2.0 Live</span>
+      <a class="link" href="/#sourcetable">Sourcetable</a>
+      <a class="link" href="/llm.txt">llm.txt</a>
+      <a class="link" href="/mcp">MCP</a>
+      <a class="link" href="/docs">Docs</a>
+      <span class="pill"><i></i>NTRIP v2.0 + MCP</span>
       <a class="gh" href="${REPO_URL}" rel="noopener">${GITHUB_ICON}GitHub</a>
     </nav>
   </header>
@@ -74,8 +77,8 @@ ${page.body}
   </main>
 
   <footer class="foot">
-    <p>Built and maintained by <a href="https://github.com/AIKitLLC">AI Kit LLC</a> &middot; Open Source under the <strong>MIT License</strong> &middot; Edge Caster served from ${escapeHtml(info.colo)} (${escapeHtml(info.country)}).</p>
-    <p>Clean-room open-source implementation of NTRIP v1.0/v2.0 transport, bit-level RTCM 3.x framing (CRC-24Q), and NMEA-0183 GGA VRS routing. Not affiliated with RTCM or BKG.</p>
+    <p>Built and maintained by <a href="https://github.com/AIKitLLC">AI Kit LLC</a> &middot; Open Source under the <strong>MIT License</strong> &middot; Edge Caster &amp; MCP Server served from ${escapeHtml(info.colo)} (${escapeHtml(info.country)}).</p>
+    <p>Clean-room open-source implementation of NTRIP v1.0/v2.0 transport, bit-level RTCM 3.x framing (CRC-24Q), NMEA-0183 GGA VRS routing, and Model Context Protocol (MCP) with ICP Internet Identity (II). Not affiliated with RTCM, BKG, or DFINITY.</p>
   </footer>
 </div>
 ${page.script ? `<script nonce="${nonce}">${page.script}</script>` : ""}

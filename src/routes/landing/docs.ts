@@ -1,5 +1,5 @@
 /**
- * Protocol Extension Guide & REST API Documentation Page (`/docs`).
+ * Protocol Extension Guide, MCP Server & REST API Documentation Page (`/docs`).
  */
 
 import { renderPage, type PageInfo } from "./layout";
@@ -7,57 +7,49 @@ import { renderPage, type PageInfo } from "./layout";
 export function renderDocsPage(info: PageInfo): string {
   const body = `
   <section class="hero">
-    <div class="eyebrow">Protocol Specification &amp; API Reference</div>
-    <h1>NTRIP v2.0 &amp; RTCM 3.x Open Extension Architecture</h1>
+    <div class="eyebrow">Protocol Specification, MCP Server &amp; ICP II Auth Reference</div>
+    <h1>NTRIP v2.0, RTCM 3.x &amp; MCP Agent Architecture</h1>
     <p class="lead">
-      How to implement, extend, and interoperate with NTRIP v1.0/v2.0 and RTCM 10403.x cleanly under the MIT License without breaking legacy GNSS receivers.
+      Complete guide for human developers and AI Agents (<a href="/llm.txt"><code>/llm.txt</code></a>) on authenticating with <strong>ICP Internet Identity (II)</strong>, validating NTRIP servers against <code>RTCM 10410.1 / 10403.3</code> specs, and registering custom mountpoints via REST or <strong>Model Context Protocol (MCP)</strong>.
     </p>
   </section>
 
   <section class="block">
-    <h2>1. Direct NTRIP v2.0 Caster Endpoints</h2>
+    <h2>1. Model Context Protocol (MCP) Server &amp; Agent Guide</h2>
     <ul class="ep">
-      <li><span class="verb">GET</span><code>/sourcetable</code><span class="d">Returns standard <code>gnss/sourcetable</code> with STR, CAS, NET records and ENDSOURCETABLE.</span></li>
-      <li><span class="verb">GET</span><code>/:mountpoint</code><span class="d">Streams binary <code>gnss/data</code> (RTCM 3.3 frames) for <code>HAN0-VN</code>, <code>SGN0-VN</code>, <code>SFO0-US</code>, <code>FFMJ-DE</code>, <code>TYO0-JP</code>, or <code>VRS-AUTO</code>.</span></li>
-      <li><span class="verb">POST</span><code>/:mountpoint</code><span class="d">NTRIP v2.0 Server ingest test: accepts binary RTCM 3.x bytes and verifies CRC-24Q on every frame.</span></li>
+      <li><span class="verb">GET</span><code>/llm.txt</code><span class="d">Step-by-step AI Agent instructions (also served at <code>/llms.txt</code>) for ICP II login, NTRIP spec validation, and MCP tool calls.</span></li>
+      <li><span class="verb">GET</span><code>/mcp</code><span class="d">MCP server discovery manifest &amp; tool JSON Schemas.</span></li>
+      <li><span class="verb">POST</span><code>/mcp</code><span class="d">MCP JSON-RPC 2.0 Streamable HTTP endpoint (tools: <code>icp_ii_auth_challenge</code>, <code>icp_ii_auth_verify</code>, <code>validate_ntrip_server</code>, <code>create_ntrip_config</code>, <code>simulate_rtk_epoch</code>, <code>decode_rtcm3_stream</code>).</span></li>
     </ul>
   </section>
 
   <section class="block">
-    <h2>2. JSON &amp; Real-Time Streaming API (<code>/api/v1</code>)</h2>
+    <h2>2. ICP Internet Identity (II) &amp; Spec-Validated Config API (<code>/api/v1</code>)</h2>
     <ul class="ep">
-      <li><span class="verb">GET</span><code>/api/v1/sourcetable?lat=&amp;lon=</code><span class="d">Parsed JSON Sourcetable + automatic Haversine nearest-base &amp; VRS routing.</span></li>
-      <li><span class="verb">POST</span><code>/api/v1/sourcetable/parse</code><span class="d">Validates and parses custom NTRIP Sourcetable text into typed STR/CAS/NET objects.</span></li>
+      <li><span class="verb">GET</span><code>/api/v1/auth/icp-ii/challenge</code><span class="d">Issues a signed challenge message and token for ICP Internet Identity (II) authentication.</span></li>
+      <li><span class="verb">POST</span><code>/api/v1/auth/icp-ii/verify</code><span class="d">Verifies ICP II session public key / signature, validates CRC-32 + Base32 Principal, and returns an <code>icp_ii_...</code> bearer token.</span></li>
+      <li><span class="verb">POST</span><code>/api/v1/ntrip/validate</code><span class="d">Validates a candidate NTRIP server / mountpoint config against 9 RTCM 10410.1 &amp; 10403.3 specification gates (including optional live <code>upstreamUrl</code> handshake).</span></li>
+      <li><span class="verb">POST</span><code>/api/v1/configs</code><span class="d"><strong>Requires ICP II Bearer Token + 100% Spec Validation:</strong> Creates and registers a live custom NTRIP mountpoint on the Caster.</span></li>
+      <li><span class="verb">GET</span><code>/api/v1/configs</code><span class="d">Lists all custom registered NTRIP configurations and active stations.</span></li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <h2>3. Direct NTRIP v2.0 Caster &amp; RTCM 3.x Codec Endpoints</h2>
+    <ul class="ep">
+      <li><span class="verb">GET</span><code>/sourcetable</code><span class="d">Returns standard <code>gnss/sourcetable</code> with STR, CAS, NET records and ENDSOURCETABLE (includes custom created mountpoints).</span></li>
+      <li><span class="verb">GET</span><code>/:mountpoint</code><span class="d">Streams binary <code>gnss/data</code> (RTCM 3.3 frames) for default or custom created mountpoints.</span></li>
+      <li><span class="verb">POST</span><code>/:mountpoint</code><span class="d">NTRIP v2.0 Server ingest verifier: accepts binary RTCM 3.x bytes and verifies CRC-24Q on every frame.</span></li>
       <li><span class="verb">POST</span><code>/api/v1/rtcm/decode</code><span class="d">Decodes Hex or Base64 RTCM 3.x streams, verifies 24-bit Qualcomm CRC-24Q, and unpacks bitfields.</span></li>
       <li><span class="verb">POST</span><code>/api/v1/rtcm/encode</code><span class="d">Encodes RTCM 1005, 1006, 1033, 1230, or 4072 binary frames from WGS-84 coordinates.</span></li>
       <li><span class="verb">POST</span><code>/api/v1/nmea/gga</code><span class="d">Parses or generates NMEA-0183 <code>$GNGGA</code> sentences and computes ENU baseline vectors.</span></li>
-      <li><span class="verb">GET</span><code>/api/v1/simulate/epoch</code><span class="d">Synthesizes a complete 1 Hz GNSS RTK epoch (RTCM3 binary + Rover GGA + convergence metrics).</span></li>
-      <li><span class="verb">GET</span><code>/api/v1/stream/:mountpoint</code><span class="d">Server-Sent Events (SSE) stream emitting real-time 1 Hz RTK epochs.</span></li>
     </ul>
-  </section>
-
-  <section class="block">
-    <h2>3. How This Project Extends NTRIP Safely (Backward-Compatible)</h2>
-    <div class="cards">
-      <div class="card">
-        <h3>HTTP/1.1 &amp; HTTP/2 Headers</h3>
-        <p>Standard GNSS rovers send <code>Ntrip-Version: Ntrip/2.0</code> and <code>Ntrip-GGA: $GNGGA...</code>. Custom edge extensions use <code>X-Ntrip-*</code> headers, which legacy receivers safely ignore.</p>
-      </div>
-      <div class="card">
-        <h3>RTCM 4072 Extension Frame</h3>
-        <p>Custom JSON/binary telemetry is wrapped inside a valid <code>0xD3</code> + <code>CRC-24Q</code> RTCM 3.x frame (Message 4072), allowing standard NTRIP casters and muxers to forward it transparently.</p>
-      </div>
-      <div class="card">
-        <h3>Sourcetable <code>misc</code> Field</h3>
-        <p>Additional capabilities (e.g. <code>ext=vrs,4072;open-mit</code>) are placed in the 19th field (<code>misc</code>) of <code>STR</code> records, preserving strict semicolon field indexing for RTKLIB and u-blox parsers.</p>
-      </div>
-    </div>
   </section>
   `;
 
   return renderPage(info, {
-    title: "Protocol & API Docs — AI Kit NTRIP Edge",
-    description: "API reference and protocol extension guide for AI Kit NTRIP Edge (NTRIP v2.0, RTCM 3.x, NMEA-0183 GGA).",
+    title: "Protocol, MCP & ICP II Docs — AI Kit NTRIP Edge",
+    description: "API reference, MCP server guide, and ICP Internet Identity (II) authentication docs for AI Kit NTRIP Edge.",
     body,
   });
 }

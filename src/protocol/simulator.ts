@@ -122,9 +122,21 @@ export const REFERENCE_STATIONS: readonly ReferenceStation[] = [
   },
 ];
 
+const CUSTOM_STATIONS = new Map<string, ReferenceStation>();
+
+export function registerStationInCatalog(station: ReferenceStation): void {
+  CUSTOM_STATIONS.set(station.mountpoint.toUpperCase(), station);
+}
+
+export function getAllStations(): readonly ReferenceStation[] {
+  const custom = Array.from(CUSTOM_STATIONS.values());
+  const customSet = new Set(custom.map((s) => s.mountpoint.toUpperCase()));
+  return [...REFERENCE_STATIONS.filter((s) => !customSet.has(s.mountpoint.toUpperCase())), ...custom];
+}
+
 export function getStationByMountpoint(mountpoint: string): ReferenceStation | undefined {
   const normalized = mountpoint.trim().toUpperCase();
-  return REFERENCE_STATIONS.find((s) => s.mountpoint.toUpperCase() === normalized);
+  return CUSTOM_STATIONS.get(normalized) ?? REFERENCE_STATIONS.find((s) => s.mountpoint.toUpperCase() === normalized);
 }
 
 /**
@@ -134,8 +146,9 @@ export function findNearestStation(coord: { latDeg: number; lonDeg: number }): {
   readonly station: ReferenceStation;
   readonly distanceKm: number;
 } {
-  const physical = REFERENCE_STATIONS.filter((s) => !s.isVrs);
-  const first = physical[0] ?? REFERENCE_STATIONS[0]!;
+  const allStations = getAllStations();
+  const physical = allStations.filter((s) => !s.isVrs);
+  const first = physical[0] ?? allStations[0]!;
   let bestStation = first;
   let bestDist = haversineDistanceKm(coord, first.coord);
 
@@ -153,7 +166,7 @@ export function findNearestStation(coord: { latDeg: number; lonDeg: number }): {
  * Build the default NTRIP Sourcetable records (`STR`, `CAS`, `NET`) for this caster.
  */
 export function getDefaultSourcetableRecords(host = "ntrip.ai-kit.net", port = 443): readonly SourcetableRecord[] {
-  const streams: StrRecord[] = REFERENCE_STATIONS.map((s) => ({
+  const streams: StrRecord[] = getAllStations().map((s) => ({
     type: "STR",
     mountpoint: s.mountpoint,
     identifier: s.identifier,

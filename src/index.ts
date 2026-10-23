@@ -6,6 +6,7 @@ import { rateLimitMiddleware } from "./middleware/rate-limit";
 import { errorHandler } from "./middleware/error";
 import { healthRouter } from "./routes/health";
 import { openapiRouter } from "./routes/openapi";
+import { mcpRouter } from "./routes/mcp";
 import { apiRouter } from "./routes/api";
 import { casterRouter } from "./routes/caster";
 
@@ -22,6 +23,7 @@ app.onError(errorHandler);
 // 3. Routes
 app.route("/", healthRouter);
 app.route("/", openapiRouter);
+app.route("/", mcpRouter);
 app.route("/api/v1", apiRouter);
 app.route("/", casterRouter);
 
@@ -32,7 +34,7 @@ app.notFound((c) => {
       success: false,
       error: {
         code: "ROUTE_NOT_FOUND",
-        message: `Route '${c.req.path}' not found. Visit '/' for available NTRIP mountpoints and API endpoints.`,
+        message: `Route '${c.req.path}' not found. Visit '/' for available NTRIP mountpoints, Playground, and MCP endpoints.`,
       },
       timestamp: new Date().toISOString(),
     },

@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from "hono";
 import type { Env } from "../types/env";
 
-const UNLIMITED_PATHS = new Set(["/", "/health", "/sourcetable", "/docs", "/openapi.json", "/llms.txt"]);
+const UNLIMITED_PATHS = new Set(["/", "/health", "/sourcetable", "/docs", "/openapi.json", "/llm.txt", "/llms.txt"]);
 
 /**
  * Per-client rate limit using the Workers Rate Limiting binding (RATE_LIMITER).

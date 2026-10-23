@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { app } from "../src/index";
-import { decodeRtcm3Stream } from "../src/protocol";
+import { bytesToHex, decodeRtcm3Stream, validateIcpPrincipal } from "../src/protocol";
 
 describe("NTRIP Edge Worker HTTP & Caster endpoints", () => {
   it("returns JSON health document on GET /health and GET / for API clients", async () => {
@@ -12,6 +12,18 @@ describe("NTRIP Edge Worker HTTP & Caster endpoints", () => {
     expect(body.mountpoints.length).toBeGreaterThanOrEqual(6);
   });
 
+  it("serves agent instructions on both GET /llm.txt and GET /llms.txt", async () => {
+    const r1 = await app.request("/llm.txt");
+    expect(r1.status).toBe(200);
+    const t1 = await r1.text();
+    expect(t1).toContain("ICP Internet Identity");
+    expect(t1).toContain("create_ntrip_config");
+
+    const r2 = await app.request("/llms.txt");
+    expect(r2.status).toBe(200);
+    expect(await r2.text()).toBe(t1);
+  });
+
   it("renders interactive HTML Playground with CSP nonce when Accept includes text/html", async () => {
     const res = await app.request("/", {
       headers: { Accept: "text/html" },
@@ -20,6 +32,7 @@ describe("NTRIP Edge Worker HTTP & Caster endpoints", () => {
     expect(res.headers.get("Content-Security-Policy")).toContain("script-src 'nonce-");
     const html = await res.text();
     expect(html).toContain("AI Kit NTRIP Edge");
+    expect(html).toContain("Proactive NTRIP Config Builder");
     expect(html).toContain("HAN0-VN");
   });
 
@@ -98,5 +111,140 @@ describe("NTRIP Edge Worker HTTP & Caster endpoints", () => {
     const text = await res.text();
     expect(text).toContain("event: epoch");
     expect(text).toContain("event: complete");
+  });
+
+  it("enforces ICP Internet Identity (II) login and NTRIP spec validation on POST /api/v1/configs and /mcp", async () => {
+    // 1. Rejects anonymous ICP Principal (2vxsx-fae)
+    expect(validateIcpPrincipal("2vxsx-fae", false).valid).toBe(false);
+
+    // 2. Rejects POST /api/v1/configs without ICP II token (401)
+    const unauthRes = await app.request("/api/v1/configs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mountpoint: "DANANG-VN",
+        stationId: 1008,
+        identifier: "Da Nang Coastal CORS",
+        city: "Da Nang",
+        country: "VNM",
+        latDeg: 16.054407,
+        lonDeg: 108.202167,
+        heightM: 15.6,
+      }),
+    });
+    expect(unauthRes.status).toBe(401);
+
+    // 3. Perform WebCrypto ECDSA P-256 ICP II Challenge-Sign authentication
+    const chRes = await app.request("/api/v1/auth/icp-ii/challenge");
+    expect(chRes.status).toBe(200);
+    const chData = (await chRes.json()) as {
+      challenge: { challengeToken: string; challengeMessage: string };
+    };
+
+    const keyPair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const spkiBuf = (await crypto.subtle.exportKey("spki", keyPair.publicKey)) as ArrayBuffer;
+    const pubKeyHex = bytesToHex(new Uint8Array(spkiBuf));
+    const sigBuf = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      keyPair.privateKey,
+      new TextEncoder().encode(chData.challenge.challengeMessage)
+    );
+    const sigHex = bytesToHex(new Uint8Array(sigBuf));
+
+    const verRes = await app.request("/api/v1/auth/icp-ii/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        challengeToken: chData.challenge.challengeToken,
+        publicKeyHex: pubKeyHex,
+        signatureHex: sigHex,
+        algorithm: "ECDSA_P256",
+      }),
+    });
+    expect(verRes.status).toBe(200);
+    const verData = (await verRes.json()) as {
+      success: boolean;
+      sessionToken: string;
+      claims: { principal: string };
+    };
+    expect(verData.success).toBe(true);
+    expect(verData.sessionToken.startsWith("icp_ii_")).toBe(true);
+    expect(validateIcpPrincipal(verData.claims.principal, false).valid).toBe(true);
+
+    // 4. Rejects invalid NTRIP config even when authenticated (missing ARP 1005/1006 in formatDetails)
+    const invalidSpecRes = await app.request("/api/v1/configs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${verData.sessionToken}`,
+      },
+      body: JSON.stringify({
+        mountpoint: "BAD-CFG",
+        stationId: 1008,
+        identifier: "Missing ARP Schedule",
+        city: "Da Nang",
+        country: "VNM",
+        latDeg: 16.054407,
+        lonDeg: 108.202167,
+        heightM: 15.6,
+        formatDetails: "1077(1),1087(1)", // Missing 1005/1006 ARP!
+      }),
+    });
+    expect(invalidSpecRes.status).toBe(422);
+
+    // 5. Creates valid NTRIP config via MCP JSON-RPC 2.0 tool `create_ntrip_config`
+    const mcpCreateRes = await app.request("/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 42,
+        method: "tools/call",
+        params: {
+          name: "create_ntrip_config",
+          arguments: {
+            icpSessionToken: verData.sessionToken,
+            mountpoint: "DANANG-VN",
+            stationId: 1008,
+            identifier: "Da Nang Coastal CORS Base",
+            city: "Da Nang",
+            country: "VNM",
+            latDeg: 16.054407,
+            lonDeg: 108.202167,
+            heightM: 15.6,
+            formatDetails: "1005(5),1033(10),1077(1),1087(1),1097(1),1127(1),1230(5)",
+          },
+        },
+      }),
+    });
+    expect(mcpCreateRes.status).toBe(200);
+    const mcpJson = (await mcpCreateRes.json()) as {
+      result: { isError: boolean; content: { text: string }[] };
+    };
+    expect(mcpJson.result.isError).toBe(false);
+    const createdPayload = JSON.parse(mcpJson.result.content[0]?.text ?? "{}") as {
+      success: boolean;
+      mountpoint: string;
+      ownerPrincipal: string;
+      strRecordLine: string;
+    };
+    expect(createdPayload.success).toBe(true);
+    expect(createdPayload.mountpoint).toBe("DANANG-VN");
+    expect(createdPayload.ownerPrincipal).toBe(verData.claims.principal);
+    expect(createdPayload.strRecordLine).toContain("STR;DANANG-VN;");
+
+    // 6. Verify that the newly registered mountpoint DANANG-VN is immediately live on GET /DANANG-VN and /sourcetable
+    const customStreamRes = await app.request("/DANANG-VN?epochs=1");
+    expect(customStreamRes.status).toBe(200);
+    expect(customStreamRes.headers.get("Content-Type")).toBe("gnss/data");
+    const customFrames = decodeRtcm3Stream(new Uint8Array(await customStreamRes.arrayBuffer()));
+    expect(customFrames.length).toBeGreaterThanOrEqual(7);
+    expect(customFrames.every((f) => f.crcValid)).toBe(true);
+
+    const stRes = await app.request("/sourcetable");
+    expect(await stRes.text()).toContain("STR;DANANG-VN;");
   });
 });
