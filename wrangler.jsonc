@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ntrip-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  // Production is served at ntrip.ai-kit.net and ntrip-edge.tuannx87.workers.dev
+  "routes": [{ "pattern": "ntrip.ai-kit.net", "custom_domain": true }],
+  "workers_dev": true,
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "2001",
+      "simple": { "limit": 240, "period": 60 }
+    }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "CASTER_OPERATOR": "AI Kit LLC",
+    "CASTER_IDENTIFIER": "AIKIT-EDGE-CASTER"
+  },
+  "env": {
+    "dev": {
+      "name": "ntrip-edge-dev",
+      "workers_dev": true,
+      "routes": [],
+      "ratelimits": [
+        {
+          "name": "RATE_LIMITER",
+          "namespace_id": "2002",
+          "simple": { "limit": 240, "period": 60 }
+        }
+      ],
+      "vars": {
+        "ENVIRONMENT": "dev",
+        "CASTER_OPERATOR": "AI Kit LLC",
+        "CASTER_IDENTIFIER": "AIKIT-EDGE-CASTER-DEV"
+      }
+    }
+  }
+}
